@@ -81,9 +81,10 @@ void showstate()
 
 	int time_raw = current.frame / samplerate;
 	int secs = time_raw % 60;
-	int mins = (time_raw) / (60) % 60;
-	int hours = (time_raw) / (60*60);
-	printf("%02d:%02d:%02d\t%dHz %d %3.02f%% %d\n", hours, mins, secs, samplerate, buffersize, jack_cpu_load(client), xrun_cnt);
+	int mins = time_raw / 60 % 60;
+	int hours = time_raw / (60*60);
+	printf("%02d:%02d:%02d\t", hours, mins, secs);
+	printf("%dHz %d %3.02f%% %d\n", samplerate, buffersize, jack_cpu_load(client), xrun_cnt);
 	printf("\n");
 }
 
