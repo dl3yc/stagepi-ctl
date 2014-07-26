@@ -1,9 +1,9 @@
 CC=gcc
 CFLAGS= -Wall -ljack -ljackserver
 
-default: server-ctl
+default: jackserver
 
-server-ctl: server-ctl.o
+jackserver: jackserver.o
 	$(CC) -o jackserver jackserver.c $(CFLAGS)
 
 clean:
