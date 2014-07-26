@@ -10,6 +10,8 @@ struct jackserver {
 	int samplerate;
 	char *playback;
 	char *capture;
+	int ins;
+	int outs;
 	int duplex;
 	int realtime;
 	int realtime_prio;

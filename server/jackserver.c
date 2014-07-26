@@ -106,7 +106,6 @@ int jackserver_init(struct jackserver *jackserver)
 	}
 
 	strncpy(value.str, jackserver->name, JACK_PARAM_STRING_MAX);
-	printf("name=%s\n", value.str);
 	ret = jackctl_server_set_value(server, "name", &value);
 	if (ret < 0) {
 		jackctl_server_destroy(server);
@@ -135,7 +134,6 @@ int jackserver_init(struct jackserver *jackserver)
 	}
 
 	strncpy(value.str, jackserver->audiodevice, JACK_PARAM_STRING_MAX);
-	printf("device=%s\n", value.str);
 	ret = jackctl_driver_set_value(driver, "device", &value);
 	if (ret < 0) {
 		jackctl_server_destroy(server);
@@ -165,6 +163,20 @@ int jackserver_init(struct jackserver *jackserver)
 
 	value.ui = jackserver->duplex;
 	ret = jackctl_driver_set_value(driver, "duplex", &value);
+	if (ret < 0) {
+		jackctl_server_destroy(server);
+		return -1;
+	}
+
+	value.ui = jackserver->ins;
+	ret = jackctl_driver_set_value(driver, "inchannels", &value);
+	if (ret < 0) {
+		jackctl_server_destroy(server);
+		return -1;
+	}
+
+	value.ui = jackserver->outs;
+	ret = jackctl_driver_set_value(driver, "outchannels", &value);
 	if (ret < 0) {
 		jackctl_server_destroy(server);
 		return -1;
@@ -218,6 +230,8 @@ int main(void)
 		.samplerate = 96000,
 		.playback = "hw:0,0",
 		.capture = "none",
+		.ins = 0,
+		.outs = 2,
 		.duplex = 0,
 		.realtime = 1,
 		.realtime_prio = 10,
@@ -230,6 +244,7 @@ int main(void)
 	printf("main: server started successfully\n");
 
 	/* ... */
+	while(1);
 
 	printf("main: server exit...\n");
 	jackserver_exit(&jackserver);
