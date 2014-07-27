@@ -129,7 +129,7 @@ int main(int argc, char *argv[])
 	struct midiplayer player = {
 		.name = "midiplayer",
 		.servername = "stagepi",
-		.midiport = "hw1",
+		.midiport = "jack2alsa:playback_1",
 	};
 
 	if (argc != 2) {
