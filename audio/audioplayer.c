@@ -55,6 +55,39 @@ static struct audioplayer audioplayer_new = {
 static int audioplayer_process(jack_nframes_t nframes, void *arg)
 {
 	struct audioplayer *player = (struct audioplayer *) arg;
+	jack_default_audio_sample_t **out;
+	int read_space;
+	jack_transport_state_t state;
+	jack_position_t pos;
+
+	read_space = jack_ringbuffer_read_space(player->rb);
+	state = jack_transport_query(player->client, &pos);
+
+
+	if (state != JackTransportRolling)
+ 		return 0;
+
+	//printf("process: read_space=%d\n", read_space);
+
+ 	if (read_space == 0)
+ 		return 0;
+
+	out = jack_port_get_buffer(player->port, nframes);
+	/* TODO: stereo */
+
+	if (player->rb_reset == 1) {
+		if (pthread_mutex_trylock(&player->reset_mutex)) {
+			player->rb_reset = 0;
+			pthread_mutex_unlock(&player->reset_mutex);
+		} else {
+			return 0;
+		}
+	}
+
+	if (nframes > read_space)
+		printf("underrun :(");
+
+	jack_ringbuffer_read(player->rb, (char *) out, nframes);
 
 	return 0;
 }
@@ -86,6 +119,8 @@ static void *audioplayer_source(void *arg)
 	int samplerate;
 	int rb_reset = 0;
 	int ret;
+	int write_space;
+	float buffer[2*24*2048];
 
 	while(!player->init_done);
 
@@ -94,7 +129,7 @@ static void *audioplayer_source(void *arg)
 	while(1) {
 		if (player->load_file) {
 			if (pthread_mutex_trylock(&player->load_mutex) == 0) {
-				player->file = sf_open(player->audiofile, SFM_WRITE, &player->info);
+				player->file = sf_open(player->audiofile, SFM_READ, &player->info);
 				if (player->file == NULL) {
 					fprintf(stderr, "audioplayer: can't load new audio file %s\n", player->audiofile);
 					player->file_loaded = 0;
@@ -111,10 +146,10 @@ static void *audioplayer_source(void *arg)
 
 		if ((player->handle_reposition) && !(player->reposition_handled)) {
 			if (pthread_mutex_trylock(&player->sync_mutex) == 0) {
-				//ret = smf_seek_to_seconds(player->smf, (double) player->frame / samplerate);
+				ret = sf_seek(player->file, player->frame, SEEK_SET);
 				rb_reset = 1;
 				printf("source: time:%f\n", (double) player->frame / samplerate);
-				//if (ret == 0)
+				//if (ret != -1)
 					player->reposition_handled = 1;
 				//else
 				//	player->reposition_handled = 1; /* return -1 for could not handle */
@@ -129,6 +164,17 @@ static void *audioplayer_source(void *arg)
 				rb_reset = 0;
 				pthread_mutex_unlock(&player->reset_mutex);
 			}
+		}
+
+
+		write_space = jack_ringbuffer_write_space(player->rb);
+		//printf("source: write_space=%d\n", write_space);
+		if (write_space == 0)
+			continue;
+
+		ret = sf_read_float(player->file, buffer, (write_space > 1024)?1024:write_space);
+		if (ret != 0) {
+			jack_ringbuffer_write(player->rb, (void *) buffer, ret);
 		}
 
 	}
@@ -186,7 +232,7 @@ int audioplayer_init(struct audioplayer *player)
 		return -1;
 	}
 
-	player->rb = jack_ringbuffer_create(1024);
+	player->rb = jack_ringbuffer_create(2*24*2048);
 	if (player->rb == NULL) {
 		fprintf(stderr, "audioplayer: can't create jack ringbuffer\n");
 		return -1;
@@ -239,7 +285,7 @@ int main(int argc, char *argv[])
 	struct audioplayer player = audioplayer_new;
 	player.name = "audioplayer";
 	player.servername = "stagepi";
-	player.audioport = "system:";
+	player.audioport = "system:playback_1";
 
 	if (argc != 2) {
 		printf("usage: %s audiofile.wav\n", argv[0]);
