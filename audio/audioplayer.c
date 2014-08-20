@@ -53,6 +53,8 @@ static struct audioplayer audioplayer_new = {
 	.rb_reset = 0,
 };
 
+#define BUF_LEN 2048
+
 static int audioplayer_process(jack_nframes_t nframes, void *arg)
 {
 	struct audioplayer *player = (struct audioplayer *) arg;
@@ -60,21 +62,18 @@ static int audioplayer_process(jack_nframes_t nframes, void *arg)
 	uint16_t read_space;
 	jack_transport_state_t state;
 	jack_position_t pos;
-	int ret;
+	int i;
 
 	read_space = jack_ringbuffer_read_space(player->rb) & 0xFFFC;
 	state = jack_transport_query(player->client, &pos);
-
-	if (state != JackTransportRolling)
- 		return 0;
-
- 	//if (read_space == 0)
-	//printf("process: read_space=%d\n", read_space);
-
- 	if (read_space == 0)
- 		return 0;
-
 	out = jack_port_get_buffer(player->port, nframes);
+
+	if ((state != JackTransportRolling) || (read_space == 0)) {
+		for(i=0;i<nframes;i++)
+			out[i] = 0.0;
+ 		return 0;
+	}
+
 	/* TODO: stereo */
 
 	if (player->rb_reset == 1) {
@@ -86,12 +85,10 @@ static int audioplayer_process(jack_nframes_t nframes, void *arg)
 		}
 	}
 
-	if (nframes > read_space)
-		printf("underrun :(");
+	if (4*nframes > read_space)
+		printf("underrun!\n");
 
-	ret = jack_ringbuffer_read(player->rb, (void *) out, nframes);
-	//printf("ringbuffer_read %d\n", ret);
-	printf("process: out[0]=%f\n", out[0]);
+	jack_ringbuffer_read(player->rb, (void *) out, 4*nframes);
 	return 0;
 }
 
@@ -123,12 +120,11 @@ static void *audioplayer_source(void *arg)
 	int rb_reset = 0;
 	int ret;
 	uint16_t write_space;
-	jack_default_audio_sample_t *buffer = malloc(32*2048); // 2048 32-bit float samples
+	jack_default_audio_sample_t *buffer = malloc(4*BUF_LEN); // 32-bit float samples
 
 	while(!player->init_done);
 
 	samplerate = jack_get_sample_rate(player->client);
-	printf("audioplayer_source: samplerate = %d\n", samplerate);
 
 	while(1) {
 		if (player->load_file) {
@@ -151,7 +147,6 @@ static void *audioplayer_source(void *arg)
 
 		if ((player->handle_reposition) && !(player->reposition_handled)) {
 			if (pthread_mutex_trylock(&player->sync_mutex) == 0) {
-				printf("sf_seek %d\n", player->frame);
 				ret = sf_seek(player->file, player->frame, SEEK_SET);
 				rb_reset = 1;
 				printf("source: time:%f\n", (double) player->frame / samplerate);
@@ -166,7 +161,6 @@ static void *audioplayer_source(void *arg)
 		if (rb_reset) {
 			if (pthread_mutex_trylock(&player->reset_mutex) == 0) {
 				player->rb_reset = 1;
-				printf("ringbuffer_reset\n");
 				jack_ringbuffer_reset(player->rb);
 				rb_reset = 0;
 				pthread_mutex_unlock(&player->reset_mutex);
@@ -174,16 +168,18 @@ static void *audioplayer_source(void *arg)
 		}
 
 		write_space = jack_ringbuffer_write_space(player->rb) & 0xFFFC;
-		if (write_space == 0)
+		if (write_space == 0) {
 			continue;
+		}
 
-		ret = sf_readf_float(player->file, buffer, (write_space > 2048)?2048:write_space);
-		if (ret == 0)
+		ret = sf_readf_float(player->file, buffer, (write_space/4>BUF_LEN)?BUF_LEN:write_space/4);
+		if (ret == 0) {
 			continue;
+		}
 		//printf("source: write_space=%d\n", write_space);
 		//printf("sf_read_float=%d\n", ret);
-		printf("source;%f\n", buffer[0]);
-		jack_ringbuffer_write(player->rb, (void *) buffer, ret);
+		//printf("source;%f\n", buffer[0]);
+		ret = jack_ringbuffer_write(player->rb, (void *) buffer, ret*4);
 
 	}
 	return 0;
@@ -240,7 +236,7 @@ int audioplayer_init(struct audioplayer *player)
 		return -1;
 	}
 
-	player->rb = jack_ringbuffer_create(32*2048);
+	player->rb = jack_ringbuffer_create(4*BUF_LEN);
 	if (player->rb == NULL) {
 		fprintf(stderr, "audioplayer: can't create jack ringbuffer\n");
 		return -1;
@@ -300,8 +296,11 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	audioplayer_init(&player);
-	audioplayer_load(&player, argv[1]);
+	if (audioplayer_init(&player))
+		return 0;
+
+	if (audioplayer_load(&player, argv[1]))
+		return 0;
 
 	printf("file loaded\n");
 
