@@ -90,7 +90,7 @@ static int audioplayer_process(jack_nframes_t nframes, void *arg)
 		printf("underrun :(");
 
 	ret = jack_ringbuffer_read(player->rb, (void *) out, nframes);
-	printf("ringbuffer_read %d\n", ret);
+	//printf("ringbuffer_read %d\n", ret);
 	printf("process: out[0]=%f\n", out[0]);
 	return 0;
 }
